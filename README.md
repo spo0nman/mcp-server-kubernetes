@@ -11,11 +11,12 @@
 [![Last Commit](https://img.shields.io/github/last-commit/Flux159/mcp-server-kubernetes)](https://github.com/Flux159/mcp-server-kubernetes/commits/main)
 [![smithery badge](https://smithery.ai/badge/mcp-server-kubernetes)](https://smithery.ai/protocol/mcp-server-kubernetes)
 
-MCP Server that can connect to a Kubernetes cluster and manage it.
+MCP Server that can connect to a Kubernetes cluster and manage it. Supports loading kubeconfig from multiple sources in priority order.
 
 https://github.com/user-attachments/assets/f25f8f4e-4d04-479b-9ae0-5dac452dd2ed
 
 <a href="https://glama.ai/mcp/servers/w71ieamqrt"><img width="380" height="200" src="https://glama.ai/mcp/servers/w71ieamqrt/badge" /></a>
+
 
 ## Usage with Claude Desktop
 
@@ -28,6 +29,44 @@ https://github.com/user-attachments/assets/f25f8f4e-4d04-479b-9ae0-5dac452dd2ed
     }
   }
 }
+```
+
+## Config Load Options
+
+1. **In-cluster** (if running in a pod)
+2. **Database** – Stored via integration UI *(recommended)*
+3. **`KUBECONFIG_YAML`** – Full config as YAML string
+4. **`KUBECONFIG_JSON`** – Full config as JSON string
+5. **`K8S_SERVER` + `K8S_TOKEN`** – Minimal env-based config
+6. **Default file** – `~/.kube/config`
+
+---
+
+### 1. Full YAML
+
+```bash
+export KUBECONFIG_YAML='apiVersion: v1 ...'
+```
+
+### 2. Full JSON
+
+```bash
+export KUBECONFIG_JSON='{"apiVersion":"v1", ...}'
+```
+
+### 3. Minimal (server + token)
+
+```bash
+export K8S_SERVER='https://...'
+export K8S_TOKEN='...'
+export K8S_SKIP_TLS_VERIFY='false' # optional
+```
+
+Optional overrides:
+
+```bash
+export K8S_CONTEXT='my-context'
+export K8S_NAMESPACE='my-namespace'
 ```
 
 The server will automatically connect to your current kubectl context. Make sure you have:
