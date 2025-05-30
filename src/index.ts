@@ -411,7 +411,7 @@ if (process.env.ENABLE_UNSAFE_SSE_TRANSPORT) {
 } else {
   const transport = new StdioServerTransport();
   
-  console.log(
+  console.error(
     `Starting Kubernetes MCP server v${serverConfig.version}, handling commands...`
   );
   
