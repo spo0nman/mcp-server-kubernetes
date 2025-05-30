@@ -13,11 +13,53 @@ export class KubernetesManager {
 
   constructor() {
     this.kc = new k8s.KubeConfig();
+    
     if (this.isRunningInCluster()) {
+      // Priority 1: In-cluster configuration (existing)
       this.kc.loadFromCluster();
+    } else if (this.hasEnvKubeconfigYaml()) {
+      // Priority 2: Full kubeconfig as YAML string
+      try {
+        this.loadEnvKubeconfigYaml();
+      } catch (error) {
+        throw new Error(`Failed to parse KUBECONFIG_YAML: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      }
+    } else if (this.hasEnvKubeconfigJson()) {
+      // Priority 3: Full kubeconfig as JSON string
+      try {
+        this.loadEnvKubeconfigJson();
+      } catch (error) {
+        throw new Error(`Failed to parse KUBECONFIG_JSON: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      }
+    } else if (this.hasEnvMinimalKubeconfig()) {
+      // Priority 4: Minimal config with individual environment variables
+      try {
+        this.loadEnvMinimalKubeconfig();
+      } catch (error) {
+        throw new Error(`Failed to create kubeconfig from K8S_SERVER and K8S_TOKEN: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      }
+    } else if (this.hasEnvKubeconfigPath()) {
+      // Priority 5: Custom kubeconfig file path
+      try {
+        this.loadEnvKubeconfigPath();
+      } catch (error) {
+        throw new Error(`Failed to load kubeconfig from KUBECONFIG_PATH: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      }
     } else {
+      // Priority 6: Default file-based configuration (existing fallback)
       this.kc.loadFromDefault();
     }
+
+    // Apply context override if specified
+    if (process.env.K8S_CONTEXT) {
+      try {
+        this.setCurrentContext(process.env.K8S_CONTEXT);
+      } catch (error) {
+        console.warn(`Warning: Could not set context to ${process.env.K8S_CONTEXT}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      }
+    }
+    
+    // Initialize API clients
     this.k8sApi = this.kc.makeApiClient(k8s.CoreV1Api);
     this.k8sAppsApi = this.kc.makeApiClient(k8s.AppsV1Api);
     this.k8sBatchApi = this.kc.makeApiClient(k8s.BatchV1Api);
@@ -34,6 +76,94 @@ export class KubernetesManager {
     } catch {
       return false;
     }
+  }
+
+  /**
+   * Check if KUBECONFIG_YAML environment variable is available
+   */
+  private hasEnvKubeconfigYaml(): boolean {
+    return !!(process.env.KUBECONFIG_YAML && process.env.KUBECONFIG_YAML.trim());
+  }
+
+  /**
+   * Check if KUBECONFIG_JSON environment variable is available
+   */
+  private hasEnvKubeconfigJson(): boolean {
+    return !!(process.env.KUBECONFIG_JSON && process.env.KUBECONFIG_JSON.trim());
+  }
+
+  /**
+   * Check if minimal K8S_SERVER and K8S_TOKEN environment variables are available
+   */
+  private hasEnvMinimalKubeconfig(): boolean {
+    return !!(
+      process.env.K8S_SERVER &&
+      process.env.K8S_SERVER.trim() &&
+      process.env.K8S_TOKEN &&
+      process.env.K8S_TOKEN.trim()
+    );
+  }
+
+  /**
+   * Load kubeconfig from KUBECONFIG_PATH environment variable (file path)
+   */
+  private loadEnvKubeconfigPath(): void {
+    this.kc.loadFromFile(process.env.KUBECONFIG_PATH!);
+  }
+
+  /**
+   * Load kubeconfig from KUBECONFIG_YAML environment variable (YAML format)
+   */
+  private loadEnvKubeconfigYaml(): void {
+    this.kc.loadFromString(process.env.KUBECONFIG_YAML!);
+  }
+
+  /**
+   * Load kubeconfig from KUBECONFIG_JSON environment variable (JSON format)
+   */
+  private loadEnvKubeconfigJson(): void {
+    const configObj = JSON.parse(process.env.KUBECONFIG_JSON!);
+    this.kc.loadFromOptions(configObj);
+  }
+
+  /**
+   * Load kubeconfig from minimal K8S_SERVER and K8S_TOKEN environment variables
+   */
+  private loadEnvMinimalKubeconfig(): void {
+    if (!process.env.K8S_SERVER || !process.env.K8S_TOKEN) {
+      throw new Error('K8S_SERVER and K8S_TOKEN environment variables are required');
+    }
+
+    const cluster = {
+      name: 'env-cluster',
+      server: process.env.K8S_SERVER,
+      skipTLSVerify: process.env.K8S_SKIP_TLS_VERIFY === 'true'
+    };
+    
+    const user = {
+      name: 'env-user',
+      token: process.env.K8S_TOKEN
+    };
+    
+    const context = {
+      name: 'env-context',
+      user: user.name,
+      cluster: cluster.name
+    };
+    
+    this.kc.loadFromOptions({
+      clusters: [cluster],
+      users: [user],
+      contexts: [context],
+      currentContext: context.name
+    });
+  }
+
+  /**
+   * Check if KUBECONFIG_PATH environment variable is available
+   */
+  private hasEnvKubeconfigPath(): boolean {
+    return !!(process.env.KUBECONFIG_PATH && process.env.KUBECONFIG_PATH.trim());
   }
 
   /**
@@ -138,5 +268,13 @@ export class KubernetesManager {
 
   getBatchApi() {
     return this.k8sBatchApi;
+  }
+
+  /**
+   * Get the default namespace for operations
+   * Uses K8S_NAMESPACE environment variable if set, otherwise defaults to "default"
+   */
+  getDefaultNamespace(): string {
+    return process.env.K8S_NAMESPACE || 'default';
   }
 }
