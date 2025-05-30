@@ -38,8 +38,15 @@ export class KubernetesManager {
       } catch (error) {
         throw new Error(`Failed to create kubeconfig from K8S_SERVER and K8S_TOKEN: ${error instanceof Error ? error.message : 'Unknown error'}`);
       }
+    } else if (this.hasEnvKubeconfigPath()) {
+      // Priority 5: Custom kubeconfig file path
+      try {
+        this.loadEnvKubeconfigPath();
+      } catch (error) {
+        throw new Error(`Failed to load kubeconfig from KUBECONFIG_PATH: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      }
     } else {
-      // Priority 5: Default file-based configuration (existing fallback)
+      // Priority 6: Default file-based configuration (existing fallback)
       this.kc.loadFromDefault();
     }
 
@@ -98,23 +105,24 @@ export class KubernetesManager {
   }
 
   /**
+   * Load kubeconfig from KUBECONFIG_PATH environment variable (file path)
+   */
+  private loadEnvKubeconfigPath(): void {
+    this.kc.loadFromFile(process.env.KUBECONFIG_PATH!);
+  }
+
+  /**
    * Load kubeconfig from KUBECONFIG_YAML environment variable (YAML format)
    */
   private loadEnvKubeconfigYaml(): void {
-    if (!process.env.KUBECONFIG_YAML) {
-      throw new Error('KUBECONFIG_YAML environment variable is not set');
-    }
-    this.kc.loadFromString(process.env.KUBECONFIG_YAML);
+    this.kc.loadFromString(process.env.KUBECONFIG_YAML!);
   }
 
   /**
    * Load kubeconfig from KUBECONFIG_JSON environment variable (JSON format)
    */
   private loadEnvKubeconfigJson(): void {
-    if (!process.env.KUBECONFIG_JSON) {
-      throw new Error('KUBECONFIG_JSON environment variable is not set');
-    }
-    const configObj = JSON.parse(process.env.KUBECONFIG_JSON);
+    const configObj = JSON.parse(process.env.KUBECONFIG_JSON!);
     this.kc.loadFromOptions(configObj);
   }
 
@@ -149,6 +157,13 @@ export class KubernetesManager {
       contexts: [context],
       currentContext: context.name
     });
+  }
+
+  /**
+   * Check if KUBECONFIG_PATH environment variable is available
+   */
+  private hasEnvKubeconfigPath(): boolean {
+    return !!(process.env.KUBECONFIG_PATH && process.env.KUBECONFIG_PATH.trim());
   }
 
   /**

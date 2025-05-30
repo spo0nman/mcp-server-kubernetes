@@ -31,43 +31,7 @@ https://github.com/user-attachments/assets/f25f8f4e-4d04-479b-9ae0-5dac452dd2ed
 }
 ```
 
-## Config Load Options
-
-1. **In-cluster** (if running in a pod)
-2. **Database** – Stored via integration UI *(recommended)*
-3. **`KUBECONFIG_YAML`** – Full config as YAML string
-4. **`KUBECONFIG_JSON`** – Full config as JSON string
-5. **`K8S_SERVER` + `K8S_TOKEN`** – Minimal env-based config
-6. **Default file** – `~/.kube/config`
-
----
-
-### 1. Full YAML
-
-```bash
-export KUBECONFIG_YAML='apiVersion: v1 ...'
-```
-
-### 2. Full JSON
-
-```bash
-export KUBECONFIG_JSON='{"apiVersion":"v1", ...}'
-```
-
-### 3. Minimal (server + token)
-
-```bash
-export K8S_SERVER='https://...'
-export K8S_TOKEN='...'
-export K8S_SKIP_TLS_VERIFY='false' # optional
-```
-
-Optional overrides:
-
-```bash
-export K8S_CONTEXT='my-context'
-export K8S_NAMESPACE='my-namespace'
-```
+By default, the server loads kubeconfig from `~/.kube/config`. For additional authentication options (environment variables, custom paths, etc.), see [ADVANCED_README.md](ADVANCED_README.md).
 
 The server will automatically connect to your current kubectl context. Make sure you have:
 

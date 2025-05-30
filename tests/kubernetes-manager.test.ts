@@ -15,6 +15,7 @@ vi.mock('@kubernetes/client-node', () => ({
     loadFromDefault: vi.fn(),
     loadFromString: vi.fn(),
     loadFromOptions: vi.fn(),
+    loadFromFile: vi.fn(),
     makeApiClient: vi.fn().mockReturnValue({}),
     getCurrentContext: vi.fn().mockReturnValue('test-context'),
     getClusters: vi.fn().mockReturnValue([{
@@ -261,6 +262,31 @@ current-context: test-context`;
       });
     });
 
+    describe('hasEnvKubeconfigPath', () => {
+      test('should return true when KUBECONFIG_PATH is set', () => {
+        process.env.KUBECONFIG_PATH = '/path/to/kubeconfig';
+        kubernetesManager = new KubernetesManager();
+        
+        const result = (kubernetesManager as any).hasEnvKubeconfigPath();
+        expect(result).toBe(true);
+      });
+
+      test('should return false when KUBECONFIG_PATH is empty', () => {
+        process.env.KUBECONFIG_PATH = '';
+        kubernetesManager = new KubernetesManager();
+        
+        const result = (kubernetesManager as any).hasEnvKubeconfigPath();
+        expect(result).toBe(false);
+      });
+
+      test('should return false when KUBECONFIG_PATH is not set', () => {
+        kubernetesManager = new KubernetesManager();
+        
+        const result = (kubernetesManager as any).hasEnvKubeconfigPath();
+        expect(result).toBe(false);
+      });
+    });
+
     describe('Configuration Priority Order', () => {
       test('should use minimal config when K8S_SERVER and K8S_TOKEN are set', () => {
         process.env.K8S_SERVER = 'https://test-cluster.example.com';
@@ -348,6 +374,29 @@ current-context: test-context`;
         // Verify setCurrentContext was called
         expect(kubeConfig.setCurrentContext).toHaveBeenCalledWith('test-context');
       });
+
+      test('should use KUBECONFIG_PATH when set', () => {
+        process.env.KUBECONFIG_PATH = '/path/to/custom/kubeconfig';
+        
+        kubernetesManager = new KubernetesManager();
+        const kubeConfig = kubernetesManager.getKubeConfig();
+        
+        // Verify loadFromFile was called with the custom path
+        expect(kubeConfig.loadFromFile).toHaveBeenCalledWith('/path/to/custom/kubeconfig');
+      });
+
+      test('should prioritize minimal config over KUBECONFIG_PATH', () => {
+        process.env.K8S_SERVER = 'https://test-cluster.example.com';
+        process.env.K8S_TOKEN = 'test-token-12345';
+        process.env.KUBECONFIG_PATH = '/path/to/custom/kubeconfig';
+        
+        kubernetesManager = new KubernetesManager();
+        const kubeConfig = kubernetesManager.getKubeConfig();
+        
+        // Verify loadFromOptions was called (minimal config) and NOT loadFromFile
+        expect(kubeConfig.loadFromOptions).toHaveBeenCalled();
+        expect(kubeConfig.loadFromFile).not.toHaveBeenCalled();
+      });
     });
 
     describe('Error Handling', () => {
@@ -362,6 +411,7 @@ current-context: test-context`;
             throw new Error('YAML parse error');
           }),
           loadFromOptions: vi.fn(),
+          loadFromFile: vi.fn(),
           makeApiClient: vi.fn().mockReturnValue({}),
           getCurrentContext: vi.fn().mockReturnValue('test-context'),
           getClusters: vi.fn().mockReturnValue([]),
