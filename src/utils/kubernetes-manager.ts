@@ -1,5 +1,9 @@
-import * as k8s from "@kubernetes/client-node";
 import * as fs from "fs";
+import * as os from "os";
+import * as path from "path";
+
+import * as k8s from "@kubernetes/client-node";
+
 import { ResourceTracker, PortForwardTracker, WatchTracker } from "../types.js";
 
 export class KubernetesManager {
@@ -14,6 +18,7 @@ export class KubernetesManager {
   constructor() {
     this.kc = new k8s.KubeConfig();
     
+    // Check each configuration method in priority order
     if (this.isRunningInCluster()) {
       // Priority 1: In-cluster configuration (existing)
       this.kc.loadFromCluster();
@@ -48,6 +53,8 @@ export class KubernetesManager {
     } else {
       // Priority 6: Default file-based configuration (existing fallback)
       this.kc.loadFromDefault();
+      // Also create temporary kubeconfig file for kubectl commands
+      this.createTempKubeconfigFromDefault();
     }
 
     // Apply context override if specified
@@ -109,13 +116,32 @@ export class KubernetesManager {
    */
   private loadEnvKubeconfigPath(): void {
     this.kc.loadFromFile(process.env.KUBECONFIG_PATH!);
+    // Also create temporary kubeconfig file for kubectl commands
+    try {
+      const kubeconfigYaml = fs.readFileSync(process.env.KUBECONFIG_PATH!, 'utf8');
+      this.createTempKubeconfigFromYaml(kubeconfigYaml);
+    } catch (error) {
+      // Continue without temp file - JavaScript client will still work
+    }
   }
 
   /**
    * Load kubeconfig from KUBECONFIG_YAML environment variable (YAML format)
    */
   private loadEnvKubeconfigYaml(): void {
-    this.kc.loadFromString(process.env.KUBECONFIG_YAML!);
+    if (!process.env.KUBECONFIG_YAML) {
+      throw new Error('KUBECONFIG_YAML environment variable is not set');
+    }
+    
+    // Load the config into the JavaScript client
+    this.kc.loadFromString(process.env.KUBECONFIG_YAML);
+    
+    // Create temporary file for kubectl commands
+    try {
+      this.createTempKubeconfigFromYaml(process.env.KUBECONFIG_YAML);
+    } catch (tempFileError) {
+      // Continue with JavaScript client only - kubectl commands will not work
+    }
   }
 
   /**
@@ -124,6 +150,8 @@ export class KubernetesManager {
   private loadEnvKubeconfigJson(): void {
     const configObj = JSON.parse(process.env.KUBECONFIG_JSON!);
     this.kc.loadFromOptions(configObj);
+    const kubeconfigYaml = this.convertConfigObjToYaml(configObj);
+    this.createTempKubeconfigFromYaml(kubeconfigYaml);
   }
 
   /**
@@ -151,12 +179,35 @@ export class KubernetesManager {
       cluster: cluster.name
     };
     
-    this.kc.loadFromOptions({
+    const kubeconfigContent = {
       clusters: [cluster],
       users: [user],
       contexts: [context],
       currentContext: context.name
-    });
+    };
+    
+    this.kc.loadFromOptions(kubeconfigContent);
+    
+    const kubeconfigYaml = `apiVersion: v1
+kind: Config
+clusters:
+- cluster:
+    server: ${process.env.K8S_SERVER}${process.env.K8S_SKIP_TLS_VERIFY === 'true' ? '\n    insecure-skip-tls-verify: true' : ''}
+  name: env-cluster
+contexts:
+- context:
+    cluster: env-cluster
+    user: env-user
+  name: env-context
+current-context: env-context
+users:
+- name: env-user
+  user:
+    token: ${process.env.K8S_TOKEN}
+`;
+    
+    // Use the shared helper method for consistency
+    this.createTempKubeconfigFromYaml(kubeconfigYaml);
   }
 
   /**
@@ -206,9 +257,8 @@ export class KubernetesManager {
           resource.namespace
         );
       } catch (error) {
-        console.error(
-          `Failed to delete ${resource.kind} ${resource.name}:`,
-          error
+        process.stderr.write(
+          `Failed to delete ${resource.kind} ${resource.name}: ${error}\n`
         );
       }
     }
@@ -276,5 +326,158 @@ export class KubernetesManager {
    */
   getDefaultNamespace(): string {
     return process.env.K8S_NAMESPACE || 'default';
+  }
+
+  /**
+   * Create temporary kubeconfig file from YAML content for kubectl commands
+   * @param kubeconfigYaml YAML content of the kubeconfig
+   */
+  private createTempKubeconfigFromYaml(kubeconfigYaml: string): void {
+    try {
+      if (!kubeconfigYaml || typeof kubeconfigYaml !== 'string') {
+        throw new Error(`Invalid kubeconfigYaml: ${typeof kubeconfigYaml}`);
+      }
+
+      const tempDir = os.tmpdir();
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+      const randomString = Math.random().toString(36).substring(2);
+      const tempKubeconfigPath = path.join(tempDir, `kubeconfig-${timestamp}-${randomString}`);
+      
+      // Write temporary kubeconfig file
+      fs.writeFileSync(tempKubeconfigPath, kubeconfigYaml, { mode: 0o600, encoding: 'utf8' });
+      
+      // Set KUBECONFIG environment variable for kubectl commands
+      process.env.KUBECONFIG = tempKubeconfigPath;
+      
+      // Function to clean up the temporary file
+      const cleanupTempFile = () => {
+        try {
+          if (fs.existsSync(tempKubeconfigPath)) {
+            fs.unlinkSync(tempKubeconfigPath);
+          }
+        } catch (cleanupError) {
+          // Ignore cleanup errors
+        }
+      };
+      
+      // Schedule cleanup of temporary file when process exits
+      process.on('exit', cleanupTempFile);
+      
+      // Also clean up on SIGINT and SIGTERM (common in Docker containers)
+      ['SIGINT', 'SIGTERM'].forEach(signal => {
+        process.on(signal, () => {
+          cleanupTempFile();
+          process.exit(0);
+        });
+      });
+      
+      // Additional cleanup for Docker container lifecycle
+      ['SIGUSR1', 'SIGUSR2'].forEach(signal => {
+        process.on(signal, cleanupTempFile);
+      });
+      
+    } catch (error) {
+      // Continue without temporary file - kubectl commands may fail but JavaScript client will work
+      throw error;
+    }
+  }
+
+  /**
+   * Convert kubeconfig object to YAML format
+   * @param configObj Kubeconfig object
+   * @returns YAML string representation
+   */
+  private convertConfigObjToYaml(configObj: any): string {
+    // Simple YAML conversion for kubeconfig structure
+    let yaml = 'apiVersion: v1\nkind: Config\n';
+    
+    // Add clusters
+    if (configObj.clusters && configObj.clusters.length > 0) {
+      yaml += 'clusters:\n';
+      configObj.clusters.forEach((cluster: any) => {
+        yaml += `- cluster:\n`;
+        if (cluster.cluster.server) {
+          yaml += `    server: ${cluster.cluster.server}\n`;
+        }
+        if (cluster.cluster['certificate-authority-data']) {
+          yaml += `    certificate-authority-data: ${cluster.cluster['certificate-authority-data']}\n`;
+        }
+        if (cluster.cluster['insecure-skip-tls-verify']) {
+          yaml += `    insecure-skip-tls-verify: ${cluster.cluster['insecure-skip-tls-verify']}\n`;
+        }
+        yaml += `  name: ${cluster.name}\n`;
+      });
+    }
+    
+    // Add contexts
+    if (configObj.contexts && configObj.contexts.length > 0) {
+      yaml += 'contexts:\n';
+      configObj.contexts.forEach((context: any) => {
+        yaml += `- context:\n`;
+        yaml += `    cluster: ${context.context.cluster}\n`;
+        yaml += `    user: ${context.context.user}\n`;
+        if (context.context.namespace) {
+          yaml += `    namespace: ${context.context.namespace}\n`;
+        }
+        yaml += `  name: ${context.name}\n`;
+      });
+    }
+    
+    // Add current context
+    if (configObj['current-context'] || configObj.currentContext) {
+      yaml += `current-context: ${configObj['current-context'] || configObj.currentContext}\n`;
+    }
+    
+    // Add users
+    if (configObj.users && configObj.users.length > 0) {
+      yaml += 'users:\n';
+      configObj.users.forEach((user: any) => {
+        yaml += `- name: ${user.name}\n`;
+        yaml += `  user:\n`;
+        if (user.user.token) {
+          yaml += `    token: ${user.user.token}\n`;
+        }
+        if (user.user['client-certificate-data']) {
+          yaml += `    client-certificate-data: ${user.user['client-certificate-data']}\n`;
+        }
+        if (user.user['client-key-data']) {
+          yaml += `    client-key-data: ${user.user['client-key-data']}\n`;
+        }
+        if (user.user.exec) {
+          yaml += `    exec:\n`;
+          yaml += `      command: ${user.user.exec.command}\n`;
+          if (user.user.exec.args) {
+            yaml += `      args:\n`;
+            user.user.exec.args.forEach((arg: string) => {
+              yaml += `      - ${arg}\n`;
+            });
+          }
+          if (user.user.exec.env) {
+            yaml += `      env:\n`;
+            user.user.exec.env.forEach((envVar: any) => {
+              yaml += `      - name: ${envVar.name}\n`;
+              yaml += `        value: ${envVar.value}\n`;
+            });
+          }
+        }
+      });
+    }
+    
+    return yaml;
+  }
+
+  /**
+   * Create temporary kubeconfig file from default kubeconfig locations for kubectl commands
+   */
+  private createTempKubeconfigFromDefault(): void {
+    try {
+      // Try to export the current kubeconfig as YAML
+      const kubeconfigYaml = this.kc.exportConfig();
+      if (kubeconfigYaml) {
+        this.createTempKubeconfigFromYaml(kubeconfigYaml);
+      }
+    } catch (error) {
+      // Continue without temporary file - kubectl commands may fail
+    }
   }
 }
