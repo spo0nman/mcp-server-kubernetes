@@ -21,7 +21,19 @@ export class KubernetesManager {
     // Check each configuration method in priority order
     if (this.isRunningInCluster()) {
       // Priority 1: In-cluster configuration (existing)
-      this.kc.loadFromCluster();
+      // BUT: Check if KUBECONFIG_YAML is explicitly provided and use that instead
+      if (this.hasEnvKubeconfigYaml()) {
+        // Explicit KUBECONFIG_YAML provided - use that even when running in cluster
+        try {
+          this.loadEnvKubeconfigYaml();
+          this.createTempKubeconfigFromYaml(process.env.KUBECONFIG_YAML!);
+        } catch (error) {
+          throw new Error(`Failed to parse KUBECONFIG_YAML: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        }
+      } else {
+        // No explicit config provided - use in-cluster configuration as fallback
+        this.kc.loadFromCluster();
+      }
     } else if (this.hasEnvKubeconfigYaml()) {
       // Priority 2: Full kubeconfig as YAML string
       try {
