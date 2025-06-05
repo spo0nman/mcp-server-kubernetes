@@ -53,8 +53,6 @@ export class KubernetesManager {
     } else {
       // Priority 6: Default file-based configuration (existing fallback)
       this.kc.loadFromDefault();
-      // Also create temporary kubeconfig file for kubectl commands
-      this.createTempKubeconfigFromDefault();
     }
 
     // Apply context override if specified
@@ -116,13 +114,6 @@ export class KubernetesManager {
    */
   private loadEnvKubeconfigPath(): void {
     this.kc.loadFromFile(process.env.KUBECONFIG_PATH!);
-    // Also create temporary kubeconfig file for kubectl commands
-    try {
-      const kubeconfigYaml = fs.readFileSync(process.env.KUBECONFIG_PATH!, 'utf8');
-      this.createTempKubeconfigFromYaml(kubeconfigYaml);
-    } catch (error) {
-      // Continue without temp file - JavaScript client will still work
-    }
   }
 
   /**
@@ -135,13 +126,6 @@ export class KubernetesManager {
     
     // Load the config into the JavaScript client
     this.kc.loadFromString(process.env.KUBECONFIG_YAML);
-    
-    // Create temporary file for kubectl commands
-    try {
-      this.createTempKubeconfigFromYaml(process.env.KUBECONFIG_YAML);
-    } catch (tempFileError) {
-      // Continue with JavaScript client only - kubectl commands will not work
-    }
   }
 
   /**
@@ -150,8 +134,6 @@ export class KubernetesManager {
   private loadEnvKubeconfigJson(): void {
     const configObj = JSON.parse(process.env.KUBECONFIG_JSON!);
     this.kc.loadFromOptions(configObj);
-    const kubeconfigYaml = this.convertConfigObjToYaml(configObj);
-    this.createTempKubeconfigFromYaml(kubeconfigYaml);
   }
 
   /**
@@ -187,27 +169,6 @@ export class KubernetesManager {
     };
     
     this.kc.loadFromOptions(kubeconfigContent);
-    
-    const kubeconfigYaml = `apiVersion: v1
-kind: Config
-clusters:
-- cluster:
-    server: ${process.env.K8S_SERVER}${process.env.K8S_SKIP_TLS_VERIFY === 'true' ? '\n    insecure-skip-tls-verify: true' : ''}
-  name: env-cluster
-contexts:
-- context:
-    cluster: env-cluster
-    user: env-user
-  name: env-context
-current-context: env-context
-users:
-- name: env-user
-  user:
-    token: ${process.env.K8S_TOKEN}
-`;
-    
-    // Use the shared helper method for consistency
-    this.createTempKubeconfigFromYaml(kubeconfigYaml);
   }
 
   /**
@@ -379,105 +340,6 @@ users:
     } catch (error) {
       // Continue without temporary file - kubectl commands may fail but JavaScript client will work
       throw error;
-    }
-  }
-
-  /**
-   * Convert kubeconfig object to YAML format
-   * @param configObj Kubeconfig object
-   * @returns YAML string representation
-   */
-  private convertConfigObjToYaml(configObj: any): string {
-    // Simple YAML conversion for kubeconfig structure
-    let yaml = 'apiVersion: v1\nkind: Config\n';
-    
-    // Add clusters
-    if (configObj.clusters && configObj.clusters.length > 0) {
-      yaml += 'clusters:\n';
-      configObj.clusters.forEach((cluster: any) => {
-        yaml += `- cluster:\n`;
-        if (cluster.cluster.server) {
-          yaml += `    server: ${cluster.cluster.server}\n`;
-        }
-        if (cluster.cluster['certificate-authority-data']) {
-          yaml += `    certificate-authority-data: ${cluster.cluster['certificate-authority-data']}\n`;
-        }
-        if (cluster.cluster['insecure-skip-tls-verify']) {
-          yaml += `    insecure-skip-tls-verify: ${cluster.cluster['insecure-skip-tls-verify']}\n`;
-        }
-        yaml += `  name: ${cluster.name}\n`;
-      });
-    }
-    
-    // Add contexts
-    if (configObj.contexts && configObj.contexts.length > 0) {
-      yaml += 'contexts:\n';
-      configObj.contexts.forEach((context: any) => {
-        yaml += `- context:\n`;
-        yaml += `    cluster: ${context.context.cluster}\n`;
-        yaml += `    user: ${context.context.user}\n`;
-        if (context.context.namespace) {
-          yaml += `    namespace: ${context.context.namespace}\n`;
-        }
-        yaml += `  name: ${context.name}\n`;
-      });
-    }
-    
-    // Add current context
-    if (configObj['current-context'] || configObj.currentContext) {
-      yaml += `current-context: ${configObj['current-context'] || configObj.currentContext}\n`;
-    }
-    
-    // Add users
-    if (configObj.users && configObj.users.length > 0) {
-      yaml += 'users:\n';
-      configObj.users.forEach((user: any) => {
-        yaml += `- name: ${user.name}\n`;
-        yaml += `  user:\n`;
-        if (user.user.token) {
-          yaml += `    token: ${user.user.token}\n`;
-        }
-        if (user.user['client-certificate-data']) {
-          yaml += `    client-certificate-data: ${user.user['client-certificate-data']}\n`;
-        }
-        if (user.user['client-key-data']) {
-          yaml += `    client-key-data: ${user.user['client-key-data']}\n`;
-        }
-        if (user.user.exec) {
-          yaml += `    exec:\n`;
-          yaml += `      command: ${user.user.exec.command}\n`;
-          if (user.user.exec.args) {
-            yaml += `      args:\n`;
-            user.user.exec.args.forEach((arg: string) => {
-              yaml += `      - ${arg}\n`;
-            });
-          }
-          if (user.user.exec.env) {
-            yaml += `      env:\n`;
-            user.user.exec.env.forEach((envVar: any) => {
-              yaml += `      - name: ${envVar.name}\n`;
-              yaml += `        value: ${envVar.value}\n`;
-            });
-          }
-        }
-      });
-    }
-    
-    return yaml;
-  }
-
-  /**
-   * Create temporary kubeconfig file from default kubeconfig locations for kubectl commands
-   */
-  private createTempKubeconfigFromDefault(): void {
-    try {
-      // Try to export the current kubeconfig as YAML
-      const kubeconfigYaml = this.kc.exportConfig();
-      if (kubeconfigYaml) {
-        this.createTempKubeconfigFromYaml(kubeconfigYaml);
-      }
-    } catch (error) {
-      // Continue without temporary file - kubectl commands may fail
     }
   }
 }

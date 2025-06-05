@@ -5,7 +5,8 @@ import { KubernetesManager } from '../src/utils/kubernetes-manager.js';
 
 // Mock fs module
 vi.mock('fs', () => ({
-  existsSync: vi.fn()
+  existsSync: vi.fn(),
+  writeFileSync: vi.fn()
 }));
 
 // Mock @kubernetes/client-node

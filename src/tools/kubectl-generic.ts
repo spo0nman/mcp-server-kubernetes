@@ -120,7 +120,7 @@ export async function kubectlGeneric(
     const command = cmdArgs.slice(1).join(' ');
     try {
       console.error(`Executing: kubectl ${command}`);
-      const result = execSync(`kubectl ${command}`, { encoding: "utf8" });
+      const result = execSync(`kubectl ${command}`, { encoding: "utf8", env: { ...process.env, KUBECONFIG: process.env.KUBECONFIG } });
       
       return {
         content: [
