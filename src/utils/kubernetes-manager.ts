@@ -17,31 +17,22 @@ export class KubernetesManager {
 
   constructor() {
     this.kc = new k8s.KubeConfig();
-    
-    // Check each configuration method in priority order
-    if (this.isRunningInCluster()) {
-      // Priority 1: In-cluster configuration (existing)
-      // BUT: Check if KUBECONFIG_YAML is explicitly provided and use that instead
-      if (this.hasEnvKubeconfigYaml()) {
-        // Explicit KUBECONFIG_YAML provided - use that even when running in cluster
-        try {
-          this.loadEnvKubeconfigYaml();
-          this.createTempKubeconfigFromYaml(process.env.KUBECONFIG_YAML!);
-        } catch (error) {
-          throw new Error(`Failed to parse KUBECONFIG_YAML: ${error instanceof Error ? error.message : 'Unknown error'}`);
-        }
-      } else {
-        // No explicit config provided - use in-cluster configuration as fallback
-        this.kc.loadFromCluster();
-      }
-    } else if (this.hasEnvKubeconfigYaml()) {
-      // Priority 2: Full kubeconfig as YAML string
+
+    if (this.hasEnvKubeconfigYaml()) {
+      // Priority 1: Full kubeconfig as YAML string
       try {
         this.loadEnvKubeconfigYaml();
         this.createTempKubeconfigFromYaml(process.env.KUBECONFIG_YAML!);
       } catch (error) {
-        throw new Error(`Failed to parse KUBECONFIG_YAML: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        throw new Error(
+          `Failed to parse KUBECONFIG_YAML: ${
+            error instanceof Error ? error.message : "Unknown error"
+          }`
+        );
       }
+    } else if (this.isRunningInCluster()) {
+      // Priority 2: Check if running in cluster
+      this.kc.loadFromCluster();
     } else if (this.hasEnvKubeconfigJson()) {
       // Priority 3: Full kubeconfig as JSON string
       try {
@@ -50,7 +41,11 @@ export class KubernetesManager {
         const yamlConfig = this.kc.exportConfig();
         this.createTempKubeconfigFromYaml(yamlConfig);
       } catch (error) {
-        throw new Error(`Failed to parse KUBECONFIG_JSON: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        throw new Error(
+          `Failed to parse KUBECONFIG_JSON: ${
+            error instanceof Error ? error.message : "Unknown error"
+          }`
+        );
       }
     } else if (this.hasEnvMinimalKubeconfig()) {
       // Priority 4: Minimal config with individual environment variables
@@ -60,19 +55,30 @@ export class KubernetesManager {
         const yamlConfig = this.kc.exportConfig();
         this.createTempKubeconfigFromYaml(yamlConfig);
       } catch (error) {
-        throw new Error(`Failed to create kubeconfig from K8S_SERVER and K8S_TOKEN: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        throw new Error(
+          `Failed to create kubeconfig from K8S_SERVER and K8S_TOKEN: ${
+            error instanceof Error ? error.message : "Unknown error"
+          }`
+        );
       }
     } else if (this.hasEnvKubeconfigPath()) {
-      // Priority 5: Custom kubeconfig file path
+      // Priority 5: Custom kubeconfig file path using KUBECONFIG_PATH
       try {
         this.loadEnvKubeconfigPath();
         // Set KUBECONFIG environment variable to the custom path for kubectl commands
         process.env.KUBECONFIG = process.env.KUBECONFIG_PATH;
       } catch (error) {
-        throw new Error(`Failed to load kubeconfig from KUBECONFIG_PATH: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        throw new Error(
+          `Failed to load kubeconfig from KUBECONFIG_PATH: ${
+            error instanceof Error ? error.message : "Unknown error"
+          }`
+        );
       }
+    } else if (this.hasEnvKubeconfig()) {
+      // Load from KUBECONFIG
+      this.kc.loadFromFile(process.env.KUBECONFIG!);
     } else {
-      // Priority 6: Default file-based configuration (existing fallback)
+      // Priority 7: Default file-based configuration (existing fallback)
       this.kc.loadFromDefault();
     }
 
@@ -81,10 +87,14 @@ export class KubernetesManager {
       try {
         this.setCurrentContext(process.env.K8S_CONTEXT);
       } catch (error) {
-        console.warn(`Warning: Could not set context to ${process.env.K8S_CONTEXT}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        console.warn(
+          `Warning: Could not set context to ${process.env.K8S_CONTEXT}: ${
+            error instanceof Error ? error.message : "Unknown error"
+          }`
+        );
       }
     }
-    
+
     // Initialize API clients
     this.k8sApi = this.kc.makeApiClient(k8s.CoreV1Api);
     this.k8sAppsApi = this.kc.makeApiClient(k8s.AppsV1Api);
@@ -108,14 +118,18 @@ export class KubernetesManager {
    * Check if KUBECONFIG_YAML environment variable is available
    */
   private hasEnvKubeconfigYaml(): boolean {
-    return !!(process.env.KUBECONFIG_YAML && process.env.KUBECONFIG_YAML.trim());
+    return !!(
+      process.env.KUBECONFIG_YAML && process.env.KUBECONFIG_YAML.trim()
+    );
   }
 
   /**
    * Check if KUBECONFIG_JSON environment variable is available
    */
   private hasEnvKubeconfigJson(): boolean {
-    return !!(process.env.KUBECONFIG_JSON && process.env.KUBECONFIG_JSON.trim());
+    return !!(
+      process.env.KUBECONFIG_JSON && process.env.KUBECONFIG_JSON.trim()
+    );
   }
 
   /**
@@ -142,9 +156,9 @@ export class KubernetesManager {
    */
   private loadEnvKubeconfigYaml(): void {
     if (!process.env.KUBECONFIG_YAML) {
-      throw new Error('KUBECONFIG_YAML environment variable is not set');
+      throw new Error("KUBECONFIG_YAML environment variable is not set");
     }
-    
+
     // Load the config into the JavaScript client
     this.kc.loadFromString(process.env.KUBECONFIG_YAML);
   }
@@ -162,33 +176,35 @@ export class KubernetesManager {
    */
   private loadEnvMinimalKubeconfig(): void {
     if (!process.env.K8S_SERVER || !process.env.K8S_TOKEN) {
-      throw new Error('K8S_SERVER and K8S_TOKEN environment variables are required');
+      throw new Error(
+        "K8S_SERVER and K8S_TOKEN environment variables are required"
+      );
     }
 
     const cluster = {
-      name: 'env-cluster',
+      name: "env-cluster",
       server: process.env.K8S_SERVER,
-      skipTLSVerify: process.env.K8S_SKIP_TLS_VERIFY === 'true'
+      skipTLSVerify: process.env.K8S_SKIP_TLS_VERIFY === "true",
     };
-    
+
     const user = {
-      name: 'env-user',
-      token: process.env.K8S_TOKEN
+      name: "env-user",
+      token: process.env.K8S_TOKEN,
     };
-    
+
     const context = {
-      name: 'env-context',
+      name: "env-context",
       user: user.name,
-      cluster: cluster.name
+      cluster: cluster.name,
     };
-    
+
     const kubeconfigContent = {
       clusters: [cluster],
       users: [user],
       contexts: [context],
-      currentContext: context.name
+      currentContext: context.name,
     };
-    
+
     this.kc.loadFromOptions(kubeconfigContent);
   }
 
@@ -196,7 +212,13 @@ export class KubernetesManager {
    * Check if KUBECONFIG_PATH environment variable is available
    */
   private hasEnvKubeconfigPath(): boolean {
-    return !!(process.env.KUBECONFIG_PATH && process.env.KUBECONFIG_PATH.trim());
+    return !!(
+      process.env.KUBECONFIG_PATH && process.env.KUBECONFIG_PATH.trim()
+    );
+  }
+
+  private hasEnvKubeconfig(): boolean {
+    return !!(process.env.KUBECONFIG && process.env.KUBECONFIG.trim());
   }
 
   /**
@@ -307,7 +329,7 @@ export class KubernetesManager {
    * Uses K8S_NAMESPACE environment variable if set, otherwise defaults to "default"
    */
   getDefaultNamespace(): string {
-    return process.env.K8S_NAMESPACE || 'default';
+    return process.env.K8S_NAMESPACE || "default";
   }
 
   /**
@@ -316,21 +338,27 @@ export class KubernetesManager {
    */
   private createTempKubeconfigFromYaml(kubeconfigYaml: string): void {
     try {
-      if (!kubeconfigYaml || typeof kubeconfigYaml !== 'string') {
+      if (!kubeconfigYaml || typeof kubeconfigYaml !== "string") {
         throw new Error(`Invalid kubeconfigYaml: ${typeof kubeconfigYaml}`);
       }
 
       const tempDir = os.tmpdir();
-      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+      const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
       const randomString = Math.random().toString(36).substring(2);
-      const tempKubeconfigPath = path.join(tempDir, `kubeconfig-${timestamp}-${randomString}`);
-      
+      const tempKubeconfigPath = path.join(
+        tempDir,
+        `kubeconfig-${timestamp}-${randomString}`
+      );
+
       // Write temporary kubeconfig file
-      fs.writeFileSync(tempKubeconfigPath, kubeconfigYaml, { mode: 0o600, encoding: 'utf8' });
-      
+      fs.writeFileSync(tempKubeconfigPath, kubeconfigYaml, {
+        mode: 0o600,
+        encoding: "utf8",
+      });
+
       // Set KUBECONFIG environment variable for kubectl commands
       process.env.KUBECONFIG = tempKubeconfigPath;
-      
+
       // Function to clean up the temporary file
       const cleanupTempFile = () => {
         try {
@@ -341,23 +369,22 @@ export class KubernetesManager {
           // Ignore cleanup errors
         }
       };
-      
+
       // Schedule cleanup of temporary file when process exits
-      process.on('exit', cleanupTempFile);
-      
+      process.on("exit", cleanupTempFile);
+
       // Also clean up on SIGINT and SIGTERM (common in Docker containers)
-      ['SIGINT', 'SIGTERM'].forEach(signal => {
+      ["SIGINT", "SIGTERM"].forEach((signal) => {
         process.on(signal, () => {
           cleanupTempFile();
           process.exit(0);
         });
       });
-      
+
       // Additional cleanup for Docker container lifecycle
-      ['SIGUSR1', 'SIGUSR2'].forEach(signal => {
+      ["SIGUSR1", "SIGUSR2"].forEach((signal) => {
         process.on(signal, cleanupTempFile);
       });
-      
     } catch (error) {
       // Continue without temporary file - kubectl commands may fail but JavaScript client will work
       throw error;
