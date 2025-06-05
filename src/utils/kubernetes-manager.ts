@@ -29,13 +29,9 @@ export class KubernetesManager {
     process.stderr.write(`  - KUBECONFIG: ${process.env.KUBECONFIG ? 'SET' : 'NOT SET'}\n`);
     
     // Check each configuration method in priority order
-    if (this.isRunningInCluster()) {
-      // Priority 1: In-cluster configuration (existing)
-      process.stderr.write(`🔍 [KUBERNETES MANAGER] Using Priority 1: In-cluster configuration\n`);
-      this.kc.loadFromCluster();
-    } else if (this.hasEnvKubeconfigYaml()) {
-      // Priority 2: Full kubeconfig as YAML string
-      process.stderr.write(`🔍 [KUBERNETES MANAGER] Using Priority 2: KUBECONFIG_YAML environment variable\n`);
+    // PRIORITY 1: Full kubeconfig as YAML string (highest priority when explicitly provided)
+    if (this.hasEnvKubeconfigYaml()) {
+      process.stderr.write(`🔍 [KUBERNETES MANAGER] Using Priority 1: KUBECONFIG_YAML environment variable\n`);
       process.stderr.write(`🔍 [KUBERNETES MANAGER] KUBECONFIG_YAML preview (first 200 chars): ${process.env.KUBECONFIG_YAML!.substring(0, 200)}...\n`);
       try {
         process.stderr.write(`🔍 [KUBERNETES MANAGER] About to call loadEnvKubeconfigYaml()\n`);
@@ -51,8 +47,8 @@ export class KubernetesManager {
         throw new Error(`Failed to parse KUBECONFIG_YAML: ${error instanceof Error ? error.message : 'Unknown error'}`);
       }
     } else if (this.hasEnvKubeconfigJson()) {
-      // Priority 3: Full kubeconfig as JSON string
-      process.stderr.write(`🔍 [KUBERNETES MANAGER] Using Priority 3: KUBECONFIG_JSON environment variable\n`);
+      // PRIORITY 2: Full kubeconfig as JSON string
+      process.stderr.write(`🔍 [KUBERNETES MANAGER] Using Priority 2: KUBECONFIG_JSON environment variable\n`);
       try {
         this.loadEnvKubeconfigJson();
         // Create temp kubeconfig file for kubectl commands from JSON
@@ -63,8 +59,8 @@ export class KubernetesManager {
         throw new Error(`Failed to parse KUBECONFIG_JSON: ${error instanceof Error ? error.message : 'Unknown error'}`);
       }
     } else if (this.hasEnvMinimalKubeconfig()) {
-      // Priority 4: Minimal config with individual environment variables
-      process.stderr.write(`🔍 [KUBERNETES MANAGER] Using Priority 4: Minimal kubeconfig (K8S_SERVER + K8S_TOKEN)\n`);
+      // PRIORITY 3: Minimal config with individual environment variables
+      process.stderr.write(`🔍 [KUBERNETES MANAGER] Using Priority 3: Minimal kubeconfig (K8S_SERVER + K8S_TOKEN)\n`);
       try {
         this.loadEnvMinimalKubeconfig();
         // Create temp kubeconfig file for kubectl commands from minimal config
@@ -75,8 +71,8 @@ export class KubernetesManager {
         throw new Error(`Failed to create kubeconfig from K8S_SERVER and K8S_TOKEN: ${error instanceof Error ? error.message : 'Unknown error'}`);
       }
     } else if (this.hasEnvKubeconfigPath()) {
-      // Priority 5: Custom kubeconfig file path
-      process.stderr.write(`🔍 [KUBERNETES MANAGER] Using Priority 5: KUBECONFIG_PATH environment variable\n`);
+      // PRIORITY 4: Custom kubeconfig file path
+      process.stderr.write(`🔍 [KUBERNETES MANAGER] Using Priority 4: KUBECONFIG_PATH environment variable\n`);
       try {
         this.loadEnvKubeconfigPath();
         // Set KUBECONFIG environment variable to the custom path for kubectl commands
@@ -86,8 +82,12 @@ export class KubernetesManager {
         process.stderr.write(`❌ [KUBERNETES MANAGER] ERROR in KUBECONFIG_PATH processing: ${error instanceof Error ? error.message : 'Unknown error'}\n`);
         throw new Error(`Failed to load kubeconfig from KUBECONFIG_PATH: ${error instanceof Error ? error.message : 'Unknown error'}`);
       }
+    } else if (this.isRunningInCluster()) {
+      // PRIORITY 5: In-cluster configuration (moved to lower priority)
+      process.stderr.write(`🔍 [KUBERNETES MANAGER] Using Priority 5: In-cluster configuration\n`);
+      this.kc.loadFromCluster();
     } else {
-      // Priority 6: Default file-based configuration (existing fallback)
+      // PRIORITY 6: Default file-based configuration (existing fallback)
       process.stderr.write(`🔍 [KUBERNETES MANAGER] Using Priority 6: Default file-based configuration\n`);
       this.kc.loadFromDefault();
     }
