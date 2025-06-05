@@ -33,7 +33,24 @@ vi.mock('@kubernetes/client-node', () => ({
       cluster: 'test-cluster',
       user: 'test-user'
     }]),
-    setCurrentContext: vi.fn()
+    setCurrentContext: vi.fn(),
+    exportConfig: vi.fn().mockReturnValue(`apiVersion: v1
+kind: Config
+clusters:
+- cluster:
+    server: https://test.example.com
+    skipTLSVerify: false
+  name: test-cluster
+users:
+- name: test-user
+  user:
+    token: test-token
+contexts:
+- context:
+    cluster: test-cluster
+    user: test-user
+  name: test-context
+current-context: test-context`)
   })),
   CoreV1Api: vi.fn(),
   AppsV1Api: vi.fn(),
@@ -418,7 +435,13 @@ current-context: test-context`;
           getClusters: vi.fn().mockReturnValue([]),
           getUsers: vi.fn().mockReturnValue([]),
           getContexts: vi.fn().mockReturnValue([]),
-          setCurrentContext: vi.fn()
+          setCurrentContext: vi.fn(),
+          exportConfig: vi.fn().mockReturnValue(`apiVersion: v1
+kind: Config
+clusters: []
+users: []
+contexts: []
+current-context: null`)
         };
         
         // Mock the KubeConfig constructor to return our mock

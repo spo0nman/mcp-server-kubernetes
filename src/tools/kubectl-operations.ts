@@ -67,9 +67,59 @@ export const listApiResourcesSchema = {
 };
 
 const executeKubectlCommand = (command: string): string => {
+  process.stderr.write(`🔍 [KUBECTL EXEC] executeKubectlCommand() started at ${new Date().toISOString()}\n`);
+  process.stderr.write(`🔍 [KUBECTL EXEC] Command to execute: ${command}\n`);
+  
+  // Debug environment variables
+  process.stderr.write(`🔍 [KUBECTL EXEC] Environment variables check:\n`);
+  process.stderr.write(`  - KUBECONFIG: ${process.env.KUBECONFIG || 'NOT SET'}\n`);
+  process.stderr.write(`  - KUBECONFIG_YAML: ${process.env.KUBECONFIG_YAML ? `SET (length: ${process.env.KUBECONFIG_YAML.length})` : 'NOT SET'}\n`);
+  process.stderr.write(`  - HOME: ${process.env.HOME || 'NOT SET'}\n`);
+  process.stderr.write(`  - USER: ${process.env.USER || 'NOT SET'}\n`);
+  
+  // Check if KUBECONFIG file exists (if set)
+  if (process.env.KUBECONFIG) {
+    try {
+      const fs = require('fs');
+      const kubeconfigExists = fs.existsSync(process.env.KUBECONFIG);
+      const stats = kubeconfigExists ? fs.statSync(process.env.KUBECONFIG) : null;
+      process.stderr.write(`🔍 [KUBECTL EXEC] KUBECONFIG file check:\n`);
+      process.stderr.write(`  - File path: ${process.env.KUBECONFIG}\n`);
+      process.stderr.write(`  - File exists: ${kubeconfigExists}\n`);
+      if (stats) {
+        process.stderr.write(`  - File size: ${stats.size} bytes\n`);
+        process.stderr.write(`  - File mode: ${stats.mode.toString(8)}\n`);
+        process.stderr.write(`  - Last modified: ${stats.mtime.toISOString()}\n`);
+      }
+    } catch (fileCheckError) {
+      process.stderr.write(`⚠️ [KUBECTL EXEC] Could not check KUBECONFIG file: ${fileCheckError}\n`);
+    }
+  }
+  
   try {
-    return execSync(command, { encoding: "utf8", env: { ...process.env, KUBECONFIG: process.env.KUBECONFIG } });
+    process.stderr.write(`🔍 [KUBECTL EXEC] About to execute kubectl command...\n`);
+    
+    const result = execSync(command, { 
+      encoding: "utf8", 
+      env: { ...process.env, KUBECONFIG: process.env.KUBECONFIG },
+      stdio: ['pipe', 'pipe', 'pipe'] // Capture stderr separately
+    });
+    
+    process.stderr.write(`🔍 [KUBECTL EXEC] ✅ kubectl command executed successfully\n`);
+    process.stderr.write(`🔍 [KUBECTL EXEC] Result length: ${result.length} characters\n`);
+    process.stderr.write(`🔍 [KUBECTL EXEC] Result preview (first 200 chars): ${result.substring(0, 200)}...\n`);
+    
+    return result;
   } catch (error: any) {
+    process.stderr.write(`❌ [KUBECTL EXEC] CRITICAL ERROR in kubectl execution:\n`);
+    process.stderr.write(`❌ [KUBECTL EXEC] Command: ${command}\n`);
+    process.stderr.write(`❌ [KUBECTL EXEC] Error message: ${error.message}\n`);
+    process.stderr.write(`❌ [KUBECTL EXEC] Error status: ${error.status}\n`);
+    process.stderr.write(`❌ [KUBECTL EXEC] Error signal: ${error.signal}\n`);
+    process.stderr.write(`❌ [KUBECTL EXEC] Error stdout: ${error.stdout || 'none'}\n`);
+    process.stderr.write(`❌ [KUBECTL EXEC] Error stderr: ${error.stderr || 'none'}\n`);
+    process.stderr.write(`❌ [KUBECTL EXEC] Full error object: ${JSON.stringify(error, null, 2)}\n`);
+    
     throw new Error(`Kubectl command failed: ${error.message}`);
   }
 };
