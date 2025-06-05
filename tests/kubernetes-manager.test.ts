@@ -33,7 +33,23 @@ vi.mock('@kubernetes/client-node', () => ({
       cluster: 'test-cluster',
       user: 'test-user'
     }]),
-    setCurrentContext: vi.fn()
+    setCurrentContext: vi.fn(),
+    exportConfig: vi.fn().mockReturnValue(`apiVersion: v1
+kind: Config
+clusters:
+- cluster:
+    server: https://test.example.com
+  name: test-cluster
+users:
+- name: test-user
+  user:
+    token: test-token
+contexts:
+- context:
+    cluster: test-cluster
+    user: test-user
+  name: test-context
+current-context: test-context`)
   })),
   CoreV1Api: vi.fn(),
   AppsV1Api: vi.fn(),
