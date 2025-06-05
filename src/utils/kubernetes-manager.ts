@@ -26,6 +26,7 @@ export class KubernetesManager {
       // Priority 2: Full kubeconfig as YAML string
       try {
         this.loadEnvKubeconfigYaml();
+        this.createTempKubeconfigFromYaml(process.env.KUBECONFIG_YAML!);
       } catch (error) {
         throw new Error(`Failed to parse KUBECONFIG_YAML: ${error instanceof Error ? error.message : 'Unknown error'}`);
       }
@@ -33,6 +34,9 @@ export class KubernetesManager {
       // Priority 3: Full kubeconfig as JSON string
       try {
         this.loadEnvKubeconfigJson();
+        // Create temp kubeconfig file for kubectl commands from JSON
+        const yamlConfig = this.kc.exportConfig();
+        this.createTempKubeconfigFromYaml(yamlConfig);
       } catch (error) {
         throw new Error(`Failed to parse KUBECONFIG_JSON: ${error instanceof Error ? error.message : 'Unknown error'}`);
       }
@@ -40,6 +44,9 @@ export class KubernetesManager {
       // Priority 4: Minimal config with individual environment variables
       try {
         this.loadEnvMinimalKubeconfig();
+        // Create temp kubeconfig file for kubectl commands from minimal config
+        const yamlConfig = this.kc.exportConfig();
+        this.createTempKubeconfigFromYaml(yamlConfig);
       } catch (error) {
         throw new Error(`Failed to create kubeconfig from K8S_SERVER and K8S_TOKEN: ${error instanceof Error ? error.message : 'Unknown error'}`);
       }
@@ -47,6 +54,8 @@ export class KubernetesManager {
       // Priority 5: Custom kubeconfig file path
       try {
         this.loadEnvKubeconfigPath();
+        // Set KUBECONFIG environment variable to the custom path for kubectl commands
+        process.env.KUBECONFIG = process.env.KUBECONFIG_PATH;
       } catch (error) {
         throw new Error(`Failed to load kubeconfig from KUBECONFIG_PATH: ${error instanceof Error ? error.message : 'Unknown error'}`);
       }
